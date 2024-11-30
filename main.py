@@ -1,12 +1,13 @@
 import asyncio
 from mavsdk import System
 from mavsdk.offboard import (OffboardError, PositionNedYaw, Attitude)
-
+from math import fmod
 
 class AutoPilot:
     def __init__(self):
         self.drone = System()
-        self.altitude = -5.0  # Desired altitude in NED coordinates (negative Down)
+        self.altitude = -5.0  #In NED coordinates, this is 5m above ground, we will maintain this throughout the "mission"
+        self.yaw_angle = 0.0  #Start by facing true north.
 
     async def run(self):
         # Connect to the drone
@@ -30,7 +31,8 @@ class AutoPilot:
         print("-- Starting offboard")
         
         # Set initial position setpoint
-        await self.drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, self.altitude, 0.0))
+        await self.drone.offboard.set_position_ned(PositionNedYaw(
+            0.0, 0.0, self.altitude, self.yaw_angle))
         
         try:
             await self.drone.offboard.start()
@@ -43,6 +45,14 @@ class AutoPilot:
         await asyncio.sleep(5)
         
         await self.moveLeft(4)
+        
+        await asyncio.sleep(5)
+        
+        await self.rotateLeft(90)  #Rotating left by 90 degrees, can specify whatever
+        
+        await asyncio.sleep(5)
+        
+        await self.rotateRight(90) #Rotating right by 90 degrees, can specify whatever
         
         await asyncio.sleep(5)
         
@@ -64,60 +74,94 @@ class AutoPilot:
         print("Landing...")
         await self.drone.action.land()
         print("Landed!")
-    
     #-------------Movement related functions--------------
     async def moveLeft(self, meters):
         print(f"Moving left by {meters} meters")
         drone = self.drone
 
-        # Get current position in NED
+        #Get current position in NED Coordinates
         async for position in drone.telemetry.position_velocity_ned():
             current_ned_position = position.position
-            break  # Get only one value
-
+            break 
+        
+        #Calculating New Ned Positions for the drone to move to
         new_north = current_ned_position.north_m
         new_east = current_ned_position.east_m + float(meters)
-        new_down = current_ned_position.down_m  # Maintain current altitude
+        new_down = current_ned_position.down_m  #Maintain current height / altitude
 
         print(f"-- Moving to North: {new_north}, East: {new_east}, Down: {new_down}")
         
         await drone.offboard.set_position_ned(
-            PositionNedYaw(new_north, new_east, new_down, 0.0))
-        await asyncio.sleep(5)  # Wait for the drone to reach the position
+            PositionNedYaw(new_north, new_east, new_down, self.yaw_angle))
+        await asyncio.sleep(5)  #Sleeping because we need to wait for the drone to reach the position and kinda "stabilize"
     
     async def moveRight(self, meters):
         print(f"Moving right by {meters} meters")
         drone = self.drone
 
-        # Get current position in NED
         async for position in drone.telemetry.position_velocity_ned():
             current_ned_position = position.position
-            break  # Get only one value
+            break
 
         new_north = current_ned_position.north_m
         new_east = current_ned_position.east_m - float(meters)
-        new_down = current_ned_position.down_m  # Maintain current altitude
+        new_down = current_ned_position.down_m 
 
         print(f"-- Moving to North: {new_north}, East: {new_east}, Down: {new_down}")
         
         await drone.offboard.set_position_ned(
-            PositionNedYaw(new_north, new_east, new_down, 0.0))
-        await asyncio.sleep(5)  # Wait for the drone to reach the position
+            PositionNedYaw(new_north, new_east, new_down, self.yaw_angle))
+        await asyncio.sleep(5) 
 
-    async def moveUp(self):
+    async def rotateLeft(self, degrees):
+        print(f"Rotating left by {degrees} degrees")
+        drone = self.drone
+
+        # Updating the yaw angle, this is kinda responsible for the rotations we can perform with the drone
+        self.yaw_angle = self.normalize_angle(self.yaw_angle - degrees)
+
+
+        async for position in drone.telemetry.position_velocity_ned():
+            current_ned_position = position.position
+            break
+
+        #we wanna maintain all other current positions, and just rotate the drone
+        new_north = current_ned_position.north_m
+        new_east = current_ned_position.east_m
+        new_down = current_ned_position.down_m
+
+        print(f"-- Rotating to yaw angle: {self.yaw_angle} degrees")
+        
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(new_north, new_east, new_down, self.yaw_angle))
+        await asyncio.sleep(5)
+
+    async def rotateRight(self, degrees):
+        print(f"Rotating right by {degrees} degrees")
         drone = self.drone
         
-        print("-- Going up at 40% thrust")
-        await drone.offboard.set_attitude(Attitude(0.0, 0.0, 0.0, 0.4))
-        await asyncio.sleep(2)
-    
-    async def moveDown(self):
-        drone = self.drone
-        
-        print("-- Going down at -40% thrust")
-        await drone.offboard.set_attitude(Attitude(0.0, 0.0, 0.0, -0.4))
-        await asyncio.sleep(2)
+        self.yaw_angle = self.normalize_angle(self.yaw_angle + degrees)
 
+        async for position in drone.telemetry.position_velocity_ned():
+            current_ned_position = position.position
+            break
+
+        new_north = current_ned_position.north_m
+        new_east = current_ned_position.east_m
+        new_down = current_ned_position.down_m
+
+        print(f"-- Rotating to yaw angle: {self.yaw_angle} degrees")
+        
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(new_north, new_east, new_down, self.yaw_angle))
+        await asyncio.sleep(5)
+
+    def normalize_angle(self, angle):
+        """Normalize the angle to be within [-180, 180] degrees."""
+        angle = fmod(angle + 180.0, 360.0)
+        if angle < 0:
+            angle += 360.0
+        return angle - 180.0
 
 if __name__ == "__main__":
     autopilot = AutoPilot()
