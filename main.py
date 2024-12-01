@@ -240,3 +240,28 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# +------------------+                  +----------------------+
+# |                  |                  |                      |
+# |   Main Thread    |                  |   Asyncio Thread     |
+# |  (Tkinter GUI)   |                  | (Drone Operations)   |
+# |                  |                  |                      |
+# +--------+---------+                  +-----------+----------+
+#          |                                        |
+#          | User clicks button                     |
+#          |                                        |
+#          | schedule_coroutine(coro)               |
+#          +--------------------------------------->|
+#          |                                        |
+#          |  asyncio.run_coroutine_threadsafe      |
+#          |                                        |
+#          |                                        |
+#          |<---------------------------------------+
+#          |                                        |
+# +--------v---------+                  +-----------v----------+
+# |                  |                  |                      |
+# | Executes callback|                  |  Executes coroutine  |
+# | in Tkinter thread|                  | in asyncio event loop|
+# |                  |                  |                      |
+# +------------------+                  +----------------------+
